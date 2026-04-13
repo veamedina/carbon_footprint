@@ -2,147 +2,131 @@
 session_start();
 include "db.php";
 
-$user_id = $_SESSION['user_id'];
+// Initialize variables
+$result = null;
+$suggestions = [];
+$total_emission = 0;
 
-$message = "";
-$total = null;
+// Handle form submission
+if (isset($_POST['compute'])) {
 
-if (isset($_POST['submit'])) {
+    $category = $_POST['category'];
+    $item = $_POST['item'];
+    $value = $_POST['value']; // distance / kWh / waste weight
 
-    $km = $_POST['km'];
-    $kwh = $_POST['kwh'];
-    $fuel = $_POST['fuel'];
+    // Get emission factor from DB
+    $stmt = $conn->prepare("SELECT factor FROM emission_factors WHERE category=? AND item=?");
+    $stmt->bind_param("ss", $category, $item);
+    $stmt->execute();
+    $stmt->bind_result($factor);
+    $stmt->fetch();
+    $stmt->close();
 
-    // calculation
-    $transport = $km * 0.21;
-    $electricity = $kwh * 0.5;
-    $fuel_emission = $fuel * 2.31;
+    if ($factor) {
+        $result = $value * $factor;
+        $total_emission = $result;
 
-    $total = $transport + $electricity + $fuel_emission;
+        // --------------------------
+        // RECOMMENDATION LOGIC
+        // --------------------------
 
-    // save to DB
-    $sql = "INSERT INTO activities 
-    (user_id, date, transport_km, electricity_kwh, fuel_liters, total_emission)
-    VALUES 
-    ('$user_id', NOW(), '$km', '$kwh', '$fuel', '$total')";
+        if ($category == "transport") {
+            if ($result > 10) {
+                $suggestions[] = "High transport emissions detected. Consider public transportation or carpooling.";
+            } else {
+                $suggestions[] = "Good job! Your transportation emissions are low.";
+            }
+        }
 
-    mysqli_query($conn, $sql);
+        if ($category == "electricity") {
+            if ($result > 50) {
+                $suggestions[] = "High electricity usage. Switch to LED lighting and energy-efficient appliances.";
+                $suggestions[] = "Consider renewable energy sources like solar panels.";
+            } else {
+                $suggestions[] = "Your electricity usage is efficient. Keep it up!";
+            }
+        }
 
-    $message = "Total CO2: $total kg";
+        if ($category == "waste") {
+            if ($result > 20) {
+                $suggestions[] = "Reduce waste by recycling and composting organic materials.";
+            } else {
+                $suggestions[] = "Good waste management habits detected.";
+            }
+        }
+
+    } else {
+        $result = "No emission factor found.";
+    }
 }
 ?>
 
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Dashboard</title>
-
-    <!-- Bootstrap (IMPORTANT UPGRADE) -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-
-    <!-- Your CSS -->
-    <link rel="stylesheet" href="UI/css/style.css">
+    <title>Carbon Footprint Tracker</title>
+    <style>
+        body { font-family: Arial; background: #f4f4f4; padding: 20px; }
+        .container { background: white; padding: 20px; max-width: 600px; margin: auto; border-radius: 10px; }
+        select, input { width: 100%; padding: 10px; margin: 10px 0; }
+        button { padding: 10px; background: green; color: white; border: none; width: 100%; }
+        .result { margin-top: 20px; padding: 10px; background: #e9ffe9; }
+        .suggestions { margin-top: 20px; background: #fff3cd; padding: 10px; }
+    </style>
 </head>
+<body>
 
-<body class="bg-light">
+<div class="container">
 
-<div class="container mt-4">
+    <h2>🌍 Carbon Footprint Tracker</h2>
 
-    <h2 class="text-success">🌿 Carbon Footprint Tracker</h2>
+    <!-- FORM -->
+    <form method="POST">
 
-    <!-- INPUT CARD -->
-    <div class="card p-3 shadow mt-3">
+        <!-- CATEGORY -->
+        <label>Category</label>
+        <select name="category" required>
+            <option value="">-- Select Category --</option>
+            <option value="transport">Transportation</option>
+            <option value="electricity">Electricity</option>
+            <option value="waste">Waste</option>
+        </select>
 
-        <form method="POST">
+        <!-- ITEM -->
+        <label>Type</label>
+        <select name="item" required>
+            <option value="passenger_car">Passenger Car</option>
+            <option value="motorcycle">Motorcycle</option>
+            <option value="electricity_grid">Electricity Grid</option>
+            <option value="food_waste">Food Waste</option>
+        </select>
 
-            <div class="row">
+        <!-- VALUE -->
+        <label>Value (km / kWh / tons)</label>
+        <input type="number" step="0.01" name="value" required>
 
-                <div class="col-md-4">
-                    <label>Transport (km)</label>
-                    <input type="number" name="km" class="form-control" required>
-                </div>
-
-                <div class="col-md-4">
-                    <label>Electricity (kWh)</label>
-                    <input type="number" name="kwh" class="form-control" required>
-                </div>
-
-                <div class="col-md-4">
-                    <label>Fuel (liters)</label>
-                    <input type="number" name="fuel" class="form-control" required>
-                </div>
-
-            </div>
-
-            <button type="submit" name="submit" class="btn btn-success mt-3">
-                Calculate
-            </button>
-
-        </form>
-
-    </div>
+        <button type="submit" name="compute">Compute CO₂e</button>
+    </form>
 
     <!-- RESULT -->
-    <?php if ($message != "") { ?>
-        <div class="alert alert-info mt-3">
-            <h4><?= $message ?></h4>
+    <?php if ($result !== null): ?>
+        <div class="result">
+            <h3>Result</h3>
+            <p><strong>CO₂e Emissions:</strong> <?= $result ?></p>
         </div>
-    <?php } ?>
+    <?php endif; ?>
 
-    <!-- RECOMMENDATIONS -->
-    <div class="card p-3 mt-3">
-
-        <h5>🌱 Eco Recommendations</h5>
-
-        <?php
-        if ($total !== null) {
-
-            if ($km > 20) echo "🚍 Use public transport<br>";
-            if ($kwh > 10) echo "💡 Reduce electricity usage<br>";
-            if ($fuel > 5) echo "🚗 Reduce fuel consumption<br>";
-
-            if ($total > 50) {
-                echo "<p class='text-danger'>⚠ High carbon footprint</p>";
-            } else {
-                echo "<p class='text-success'>🌍 Good job!</p>";
-            }
-        }
-        ?>
-
-    </div>
-
-    <!-- RECENT ACTIVITY -->
-    <div class="card p-3 mt-3">
-
-        <h5>📊 Recent Activity</h5>
-
-        <?php
-        $sql = "SELECT * FROM activities 
-                WHERE user_id='$user_id' 
-                ORDER BY date DESC 
-                LIMIT 3";
-
-        $result = mysqli_query($conn, $sql);
-
-        while ($row = mysqli_fetch_assoc($result)) {
-            echo "<div class='border p-2 mb-2'>";
-            echo "Date: {$row['date']}<br>";
-            echo "CO2: {$row['total_emission']} kg";
-            echo "</div>";
-        }
-        ?>
-
-    </div>
-
-    <!-- HISTORY BUTTON -->
-    <a href="history.php" class="btn btn-outline-success mt-3">
-        View Full History
-    </a>
+    <!-- SUGGESTIONS -->
+    <?php if (!empty($suggestions)): ?>
+        <div class="suggestions">
+            <h3>🌱 Recommendations</h3>
+            <?php foreach ($suggestions as $s): ?>
+                <p>✔ <?= $s ?></p>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
 
 </div>
-
-<!-- JS -->
-<script src="UI/js/script.js"></script>
 
 </body>
 </html>
